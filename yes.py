@@ -1,20 +1,18 @@
 static int __init re_init(void)
 {
-    unsigned long addr;
     getthisguy_fn_t getthisguy_fn;
     struct THISGUY *guy;
     int ret;
 
-    addr = kallsyms_lookup_name("getthisguy");
-
-    if (!addr) {
-        pr_err("re_mem: could not find getthisguy\n");
-        return -ENOENT;
+    if (!getthisguy_addr) {
+        pr_err("re_mem: getthisguy_addr was not provided\n");
+        return -EINVAL;
     }
 
-    pr_info("re_mem: getthisguy address = 0x%lx\n", addr);
+    pr_info("re_mem: getthisguy runtime addr = 0x%lx\n",
+            getthisguy_addr);
 
-    getthisguy_fn = (getthisguy_fn_t)addr;
+    getthisguy_fn = (getthisguy_fn_t)getthisguy_addr;
 
     guy = getthisguy_fn(0);
 
@@ -23,16 +21,15 @@ static int __init re_init(void)
         return -ENODEV;
     }
 
-    pr_info("re_mem: THISGUY = %px\n", guy);
-    pr_info("re_mem: var4 = %px\n", guy->var4);
-    pr_info("re_mem: var5 = %px\n", guy->var5);
+    pr_info("re_mem: THISGUY=%px\n", guy);
+    pr_info("re_mem: var4=%px\n", guy->var4);
+    pr_info("re_mem: var5=%px\n", guy->var5);
+
+    /* your existing mapping setup stays here */
 
     ret = misc_register(&re_device);
-    if (ret) {
-        pr_err("re_mem: misc_register failed: %d\n", ret);
+    if (ret)
         return ret;
-    }
 
-    pr_info("re_mem: loaded\n");
     return 0;
 }
