@@ -1,54 +1,52 @@
-return {
-    {
-        "jake-stewart/multicursor.nvim",
-        branch = "main",
+{
+    "folke/twilight.nvim",
 
-        config = function()
-            local mc = require("multicursor-nvim")
+    lazy = false,
 
-            mc.setup()
-
-            local set = vim.keymap.set
-
-            -- Add cursor at next matching word / visual selection
-            set({ "n", "x" }, "<A-n>", function()
-                mc.matchAddCursor(1)
-            end, { desc = "Add next matching cursor" })
-
-            -- Add cursor at previous matching word / visual selection
-            set({ "n", "x" }, "<A-p>", function()
-                mc.matchAddCursor(-1)
-            end, { desc = "Add previous matching cursor" })
-
-            -- Add cursor on line above
-            set({ "n", "x" }, "<A-Up>", function()
-                mc.lineAddCursor(-1)
-            end, { desc = "Add cursor above" })
-
-            -- Add cursor on line below
-            set({ "n", "x" }, "<A-Down>", function()
-                mc.lineAddCursor(1)
-            end, { desc = "Add cursor below" })
-
-            -- Normal Esc behavior when multicursor is NOT active
-            set("n", "<Esc>", function()
-                vim.cmd("nohlsearch")
-            end, { silent = true })
-
-            -- Esc behavior while multicursor IS active
-            mc.addKeymapLayer(function(layerSet)
-                layerSet("n", "<Esc>", function()
-                    if not mc.cursorsEnabled() then
-                        -- Cursors exist but were disabled:
-                        -- re-enable them first.
-                        mc.enableCursors()
-                    else
-                        -- Cursors are enabled:
-                        -- collapse them back to one cursor.
-                        mc.clearCursors()
-                    end
-                end)
-            end)
-        end,
+    dependencies = {
+        "nvim-treesitter/nvim-treesitter",
     },
-}
+
+    opts = {
+        dimming = {
+            alpha = 0.25,
+            color = { "Normal", "#ffffff" },
+            term_bg = "#000000",
+            inactive = false,
+        },
+
+        context = 10,
+        treesitter = true,
+    },
+
+    config = function(_, opts)
+        require("twilight").setup(opts)
+
+        -- F4 toggles Twilight
+        vim.keymap.set("n", "<F4>", "<cmd>Twilight<CR>", {
+            silent = true,
+            desc = "Toggle Twilight",
+        })
+
+        -- Wait until buffer setup/Treesitter has had time to attach
+        local group = vim.api.nvim_create_augroup(
+            "TwilightDeferredStartup",
+            { clear = true }
+        )
+
+        vim.api.nvim_create_autocmd(
+            { "BufReadPost", "BufNewFile" },
+            {
+                group = group,
+
+                callback = function()
+                    vim.schedule(function()
+                        if vim.api.nvim_buf_is_valid(0) then
+                            pcall(vim.cmd, "TwilightEnable")
+                        end
+                    end)
+                end,
+            }
+        )
+    end,
+},
