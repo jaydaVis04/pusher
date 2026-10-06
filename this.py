@@ -1,34 +1,20 @@
-{
-  "jake-stewart/multicursor.nvim",
-  branch = "1.0",
+return {
+  "folke/twilight.nvim",
+  opts = {
+    dimming = { alpha = 0.25 },
+    context = 10,
+  },
+  keys = {
+    { "<leader>tw", "<cmd>Twilight<cr>", desc = "Toggle Twilight Focus" },
+  },
+}
+
+return {
+  "HampusHauffman/block.nvim",
   config = function()
-    local mc = require("multicursor-nvim")
-    mc.setup()
-
-    vim.keymap.set({"n", "v"}, "<C-n>", function()
-      mc.matchAddCursor(1)
-    end)
-
-    vim.keymap.set({"n", "v"}, "<C-p>", function()
-      mc.matchAddCursor(-1)
-    end)
-
-    vim.keymap.set({"n", "v"}, "<C-Up>", function()
-      mc.lineAddCursor(-1)
-    end)
-
-    vim.keymap.set({"n", "v"}, "<C-Down>", function()
-      mc.lineAddCursor(1)
-    end)
-
-    vim.keymap.set("n", "<Esc>", function()
-      if not mc.cursorsEnabled() then
-        mc.enableCursors()
-      elseif mc.hasCursors() then
-        mc.clearCursors()
-      else
-        vim.cmd("nohlsearch")
-      end
-    end)
+    require("block").setup({
+      percent = 0.8,
+      depth = 4,
+    })
   end,
 }
