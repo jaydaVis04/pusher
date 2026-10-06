@@ -4,26 +4,15 @@ return {
     dimming = { alpha = 0.25 },
     context = 10,
   },
-  keys = {
-    { "<leader>tw", "<cmd>Twilight<cr>", desc = "Toggle Twilight Focus" },
-  },
-}
+  config = function(_, opts)
+    require("twilight").setup(opts)
 
-# XD
-
-return {
-  "kevinhwang91/nvim-ufo",
-  dependencies = "kevinhwang91/promise-async",
-  config = function()
-    vim.o.foldlevel = 99
-    vim.o.foldlevelstart = 99
-    vim.o.foldenable = true
-
-    require("ufo").setup()
-
-    -- Custom UFO keybinds using vim.keymap.set
-    local keymap = vim.keymap.set
-    keymap("n", "zR", require("ufo").openAllFolds, { desc = "Open all folds" })
-    keymap("n", "zM", require("ufo").closeAllFolds, { desc = "Close all folds" })
+    -- Enable Twilight automatically when entering any code buffer
+    vim.api.nvim_create_autocmd("BufReadPost", {
+      group = vim.api.nvim_create_augroup("AutoTwilight", { clear = true }),
+      callback = function()
+        require("twilight").enable()
+      end,
+    })
   end,
 }
