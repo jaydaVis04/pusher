@@ -1,27 +1,80 @@
+// above re_init
+static void check_md_region(const char *name,
+                            phys_addr_t md_base,
+                            void __iomem *ap_virt,
+                            size_t size,
+                            phys_addr_t target)
 {
-    void __iomem *ap_addr;
-    phys_addr_t md_addr;
+    phys_addr_t end;
+    phys_addr_t off;
+    void __iomem *ap_target;
     u8 value;
 
-    if (!guy->var5 || !guy->var5->base_ap_view_vir) {
-        pr_err("re_mem: var5 unavailable\n");
-        return -ENODEV;
+    if (!size)
+        return;
+
+    end = md_base + size;
+
+    pr_info("re_mem: %s MD range %pa - %pa\n",
+            name, &md_base, &end);
+
+    if (target < md_base || target >= end)
+        return;
+
+    pr_info("re_mem: *** TARGET IS INSIDE %s ***\n", name);
+
+    off = target - md_base;
+
+    pr_info("re_mem: target offset = 0x%llx\n",
+            (unsigned long long)off);
+
+    if (!ap_virt) {
+        pr_info("re_mem: %s has no AP virtual mapping\n", name);
+        return;
     }
 
-    if (0x100 >= guy->var5->size) {
-        pr_err("re_mem: offset 0x100 outside var5\n");
-        return -EINVAL;
-    }
+    ap_target = (u8 __iomem *)ap_virt + off;
 
-    md_addr = guy->var5->base_md_view_phy + 0x100;
+    value = readb(ap_target);
 
-    ap_addr =
-        (u8 __iomem *)guy->var5->base_ap_view_vir + 0x100;
+    pr_info("re_mem: %s AP target = %px\n",
+            name, ap_target);
 
-    value = readb(ap_addr);
-
-    pr_info("re_mem: OBSERVE md=%pa ap=%px offset=0x100 value=0x%02x\n",
-            &md_addr,
-            ap_addr,
+    pr_info("re_mem: ORIGINAL BYTE = 0x%02x\n",
             value);
 }
+
+// in re_init
+phys_addr_t original_target = 0x63c0748a;
+
+check_md_region("var1",
+                guy->var1.base_md_view_phy,
+                guy->var1.base_ap_view_vir,
+                guy->var1.size,
+                original_target);
+
+check_md_region("var2",
+                guy->var2.base_md_view_phy,
+                guy->var2.base_ap_view_vir,
+                guy->var2.size,
+                original_target);
+
+check_md_region("var3",
+                guy->var3.base_md_view_phy,
+                guy->var3.base_ap_view_vir,
+                guy->var3.size,
+                original_target);
+
+if (guy->var4)
+    check_md_region("var4",
+                    guy->var4->base_md_view_phy,
+                    guy->var4->base_ap_view_vir,
+                    guy->var4->size,
+                    original_target);
+
+if (guy->var5)
+    check_md_region("var5",
+                    guy->var5->base_md_view_phy,
+                    guy->var5->base_ap_view_vir,
+                    guy->var5->size,
+                    original_target);
