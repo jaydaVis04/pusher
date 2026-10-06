@@ -1,56 +1,97 @@
-static int read_phys_ram(phys_addr_t phys, void *dst, size_t len)
+static ssize_t re_read(struct file *file,
+                       char __user *user_buffer,
+                       size_t count,
+                       loff_t *offset)
 {
-    unsigned long pfn;
-    unsigned long page_off;
-    struct page *page;
-    void *vaddr;
+    u8 *tmp;
+    size_t total = 0;
+    size_t available;
 
-    pfn = PHYS_PFN(phys);
-    page_off = offset_in_page(phys);
-
-    if (!pfn_valid(pfn)) {
-        pr_err("re_mem: PFN is not valid for phys=%pa\n", &phys);
+    if (*offset < 0)
         return -EINVAL;
-    }
 
-    if (page_off + len > PAGE_SIZE) {
-        pr_err("re_mem: requested read crosses page boundary\n");
-        return -EINVAL;
-    }
+    if ((u64)*offset >= phys_size)
+        return 0;
 
-    page = pfn_to_page(pfn);
+    available = phys_size - (size_t)*offset;
 
-    vaddr = kmap(page);
-    if (!vaddr) {
-        pr_err("re_mem: kmap failed\n");
+    if (count > available)
+        count = available;
+
+    if (!count)
+        return 0;
+
+    tmp = kmalloc(PAGE_SIZE, GFP_KERNEL);
+    if (!tmp)
         return -ENOMEM;
+
+    while (total < count) {
+        phys_addr_t current;
+        size_t page_remaining;
+        size_t chunk;
+        int ret;
+
+        current = phys_base +
+                  (phys_addr_t)*offset +
+                  total;
+
+        page_remaining =
+            PAGE_SIZE - offset_in_page(current);
+
+        chunk = count - total;
+
+        if (chunk > page_remaining)
+            chunk = page_remaining;
+
+        ret = read_phys_ram(current,
+                            tmp,
+                            chunk);
+
+        if (ret) {
+            kfree(tmp);
+
+            if (total) {
+                *offset += total;
+                return total;
+            }
+
+            return ret;
+        }
+
+        if (copy_to_user(user_buffer + total,
+                         tmp,
+                         chunk)) {
+            kfree(tmp);
+
+            if (total) {
+                *offset += total;
+                return total;
+            }
+
+            return -EFAULT;
+        }
+
+        total += chunk;
     }
 
-    memcpy(dst,
-           (u8 *)vaddr + page_off,
-           len);
+    kfree(tmp);
 
-    kunmap(page);
+    *offset += total;
 
-    return 0;
+    return total;
 }
 
-// ADD THIS TOO
+// that is the read one
 
+static loff_t re_llseek(struct file *file,
+                        loff_t offset,
+                        int whence)
 {
-    phys_addr_t target = 0x63c0748a;
-    u8 buf[16];
-    int i;
-
-    ret = read_phys_ram(target, buf, sizeof(buf));
-
-    if (ret) {
-        pr_err("re_mem: physical RAM test failed: %d\n", ret);
-    } else {
-        pr_info("re_mem: bytes at %pa:\n", &target);
-
-        for (i = 0; i < sizeof(buf); i++)
-            pr_info("re_mem: +0x%x = 0x%02x\n",
-                    i, buf[i]);
-    }
+    return fixed_size_llseek(file,
+                             offset,
+                             whence,
+                             phys_size);
 }
+
+// that is the llseek
+
