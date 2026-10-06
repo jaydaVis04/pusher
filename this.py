@@ -1,20 +1,15 @@
-return {
-  "folke/twilight.nvim",
-  opts = {
-    dimming = { alpha = 0.25 },
-    context = 10,
-  },
-  keys = {
-    { "<leader>tw", "<cmd>Twilight<cr>", desc = "Toggle Twilight Focus" },
-  },
-}
-
-return {
-  "HampusHauffman/block.nvim",
+{
+  "kevinhwang91/nvim-ufo",
+  dependencies = "kevinhwang91/promise-async",
   config = function()
-    require("block").setup({
-      percent = 0.8,
-      depth = 4,
+    vim.o.foldlevel = 99
+    vim.o.foldlevelstart = 99
+    vim.o.foldenable = true
+
+    require("ufo").setup({
+      provider_selector = function(bufnr, filetype, buftype)
+        return { "treesitter", "indent" }
+      end,
     })
   end,
 }
