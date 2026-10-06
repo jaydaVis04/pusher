@@ -1,5 +1,4 @@
-//before re_read
-static int read_phys_ram(phys_addr_t phys, void *dst, size_t len)
+static int write_phys_u32(phys_addr_t phys, u32 value)
 {
     unsigned long pfn;
     unsigned long page_off;
@@ -12,7 +11,7 @@ static int read_phys_ram(phys_addr_t phys, void *dst, size_t len)
     if (!pfn_valid(pfn))
         return -EINVAL;
 
-    if (page_off + len > PAGE_SIZE)
+    if (page_off + sizeof(value) > PAGE_SIZE)
         return -EINVAL;
 
     page = pfn_to_page(pfn);
@@ -21,91 +20,25 @@ static int read_phys_ram(phys_addr_t phys, void *dst, size_t len)
     if (!vaddr)
         return -ENOMEM;
 
-    memcpy(dst, (u8 *)vaddr + page_off, len);
+    memcpy((u8 *)vaddr + page_off,
+           &value,
+           sizeof(value));
+
+    flush_dcache_page(page);
 
     kunmap(page);
 
     return 0;
 }
 
-//corerect reread
-static ssize_t re_read(struct file *file,
-                       char __user *user_buffer,
-                       size_t count,
-                       loff_t *offset)
-{
-    u8 *tmp;
-    size_t total = 0;
-    size_t available;
+// this is good too
+phys_addr_t ptr_location = 0x6478f29c;
+u32 new_ptr = /* desired base_md_view_phy value */;
 
-    if (*offset < 0)
-        return -EINVAL;
+ret = write_phys_u32(ptr_location, new_ptr);
 
-    if ((u64)*offset >= phys_size)
-        return 0;
-
-    available = phys_size - (size_t)*offset;
-
-    if (count > available)
-        count = available;
-
-    if (!count)
-        return 0;
-
-    tmp = kmalloc(PAGE_SIZE, GFP_KERNEL);
-    if (!tmp)
-        return -ENOMEM;
-
-    while (total < count) {
-        phys_addr_t phys_cur;
-        size_t page_remaining;
-        size_t chunk;
-        int ret;
-
-        phys_cur = phys_base +
-                   (phys_addr_t)*offset +
-                   total;
-
-        page_remaining =
-            PAGE_SIZE - offset_in_page(phys_cur);
-
-        chunk = count - total;
-
-        if (chunk > page_remaining)
-            chunk = page_remaining;
-
-        ret = read_phys_ram(phys_cur, tmp, chunk);
-
-        if (ret) {
-            kfree(tmp);
-
-            if (total) {
-                *offset += total;
-                return total;
-            }
-
-            return ret;
-        }
-
-        if (copy_to_user(user_buffer + total,
-                         tmp,
-                         chunk)) {
-            kfree(tmp);
-
-            if (total) {
-                *offset += total;
-                return total;
-            }
-
-            return -EFAULT;
-        }
-
-        total += chunk;
-    }
-
-    kfree(tmp);
-
-    *offset += total;
-
-    return total;
-}
+if (ret)
+    pr_err("re_mem: pointer patch failed: %d\n", ret);
+else
+    pr_info("re_mem: patched PTR_DAT_9078f29c to 0x%08x\n",
+            new_ptr);
