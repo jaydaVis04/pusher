@@ -1,5 +1,29 @@
-return {
-  -- Treesitter (Parsers & Syntax Highlighting)
+-- Set mapleader to Space
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
+
+-- Basic folding settings required for nvim-ufo
+vim.o.foldlevel = 99
+vim.o.foldlevelstart = 99
+vim.o.foldenable = true
+
+-- Bootstrap lazy.nvim
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+  vim.fn.system({
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git",
+    "--branch=stable",
+    lazypath,
+  })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- Define all your plugins in one table
+local plugins = {
+  -- Treesitter (Parsers & Highlighting)
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
@@ -26,7 +50,7 @@ return {
     end,
   },
 
-  -- Twilight (Dim Code Outside Active Scope)
+  -- Twilight (Dim code outside current scope)
   {
     "folke/twilight.nvim",
     opts = {
@@ -53,7 +77,7 @@ return {
     end,
   },
 
-  -- Nvim UFO (Treesitter Folding)
+  -- Nvim UFO (Folding)
   {
     "kevinhwang91/nvim-ufo",
     dependencies = "kevinhwang91/promise-async",
@@ -65,4 +89,10 @@ return {
       })
     end,
   },
+
+  -- Import your separate multicursor file
+  { import = "plugins.multicursor" },
 }
+
+-- Initialize Lazy
+require("lazy").setup(plugins)
