@@ -90,8 +90,8 @@ local plugins = {
     end,
   },
 
-  -- Import your separate multicursor file
-  { import = "plugins.multicursor" },
+  -- Import your multicursor file (located at lua/multicursor.lua)
+  { import = "multicursor" },
 }
 
 -- Initialize Lazy
