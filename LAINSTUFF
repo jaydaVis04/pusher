@@ -1,0 +1,8 @@
+# Install the necessary system media libraries
+sudo apt update
+sudo apt install libopencv-dev clang libclang-dev libmpv1 libmpv-dev ffmpeg libavfilter-dev libavdevice-dev
+
+# Install tplay using Rust's package manager
+cargo install tplay
+
+tplay lain_layer_01.mp4
