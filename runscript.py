@@ -1,26 +1,31 @@
 python3 - <<'PY'
-data = open("var2.bin", "rb").read()
+from pathlib import Path
 
 patterns = {
-    "Dispatch+1": bytes.fromhex("75 4e 9f 90"),
-    "Schedule+1": bytes.fromhex("49 5b 9f 90"),
-    "Nested+1":   bytes.fromhex("25 59 fc 94"),
-
-    # Also test the live/code-mapped forms.
     "Dispatch_live+1": bytes.fromhex("75 4e 9f 64"),
     "Schedule_live+1": bytes.fromhex("49 5b 9f 64"),
+    "Nested_live+1":   bytes.fromhex("25 59 fc 68"),
 }
 
-for name, sig in patterns.items():
-    hits = []
-    p = 0
+for fn in ["var2.bin", "var3.bin", "var4.bin", "var5.bin"]:
+    p = Path(fn)
+    if not p.exists():
+        continue
 
-    while True:
-        p = data.find(sig, p)
-        if p < 0:
-            break
-        hits.append(p)
-        p += 1
+    data = p.read_bytes()
+    print(f"\n=== {fn} ===")
 
-    print(name, [hex(x) for x in hits[:20]])
+    for name, sig in patterns.items():
+        hits = []
+        pos = 0
+
+        while True:
+            pos = data.find(sig, pos)
+            if pos < 0:
+                break
+
+            hits.append(pos)
+            pos += 1
+
+        print(name, [hex(x) for x in hits[:20]])
 PY
