@@ -1,109 +1,26 @@
-#!/usr/bin/env python3
+python3 - <<'PY'
+data = open("var3.bin", "rb").read()
 
-import re
-import sys
-from pathlib import Path
-
-
-# ============================================================
-# EDIT ONLY THIS SECTION
-# ============================================================
-
-NAMES = {
-    "THISGUY": "YOUR_THISGUY_NAME",
-
-    "struct x": "struct YOUR_X_NAME",
-    "struct y": "struct YOUR_Y_NAME",
-
-    "var1": "YOUR_VAR1",
-    "var2": "YOUR_VAR2",
-    "var3": "YOUR_VAR3",
-    "var4": "YOUR_VAR4",
-    "var5": "YOUR_VAR5",
-
-    "guy": "YOUR_GUY_NAME",
-
-    "getthisguy_fn_t": "YOUR_GET_FN_TYPE",
-    "getthisguy_fn": "YOUR_GET_FN",
-
-    "myaddr": "YOUR_ADDR_NAME",
-
-    "print_x": "YOUR_PRINT_X",
-    "print_y": "YOUR_PRINT_Y",
+patterns = {
+    "Dispatch_LISR+1": bytes.fromhex("75 4e 9f 90"),
+    "Dispatch_LISR":   bytes.fromhex("74 4e 9f 90"),
+    "Schedule+1":      bytes.fromhex("49 5b 9f 90"),
+    "Schedule":        bytes.fromhex("48 5b 9f 90"),
+    "Nested_LISR+1":   bytes.fromhex("25 59 fc 94"),
+    "Nested_LISR":     bytes.fromhex("24 59 fc 94"),
 }
 
+for name, sig in patterns.items():
+    hits = []
+    pos = 0
 
-# ============================================================
-# DON'T NEED TO EDIT BELOW HERE
-# ============================================================
+    while True:
+        off = data.find(sig, pos)
+        if off < 0:
+            break
 
-def parse_args():
-    input_file = None
-    output_file = None
+        hits.append(off)
+        pos = off + 1
 
-    for arg in sys.argv[1:]:
-        if arg.startswith("if="):
-            input_file = arg[3:]
-        elif arg.startswith("of="):
-            output_file = arg[3:]
-
-    if not input_file or not output_file:
-        print(
-            f"Usage: {sys.argv[0]} "
-            "if=<input_file> of=<output_file>"
-        )
-        sys.exit(1)
-
-    return Path(input_file), Path(output_file)
-
-
-def replace_identifier(text, old, new):
-    # Handle things like "struct x" separately.
-    if " " in old:
-        return re.sub(
-            r"(?<![A-Za-z0-9_])" +
-            re.escape(old) +
-            r"(?![A-Za-z0-9_])",
-            new,
-            text,
-        )
-
-    # Replace complete C identifiers only.
-    return re.sub(
-        r"\b" + re.escape(old) + r"\b",
-        new,
-        text,
-    )
-
-
-def main():
-    input_file, output_file = parse_args()
-
-    if not input_file.exists():
-        print(f"ERROR: input file does not exist: {input_file}")
-        sys.exit(1)
-
-    text = input_file.read_text()
-
-    # Longest names first avoids partial/overlapping replacements.
-    replacements = sorted(
-        NAMES.items(),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    )
-
-    for old, new in replacements:
-        text = replace_identifier(text, old, new)
-
-    output_file.write_text(text)
-
-    print(f"[+] Input:  {input_file}")
-    print(f"[+] Output: {output_file}")
-    print("[+] Replacements:")
-
-    for old, new in replacements:
-        print(f"    {old} -> {new}")
-
-
-if __name__ == "__main__":
-    main()
+    print(name, [hex(x) for x in hits[:20]])
+PY
