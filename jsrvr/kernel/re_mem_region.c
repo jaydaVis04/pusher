@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Read-only access to borrowed vendor shared-memory mappings. */
+#include <linux/capability.h>
+#include <linux/err.h>
+#include <linux/fs.h>
+#include <linux/io.h>
+#include <linux/kernel.h>
+#include <linux/miscdevice.h>
+#include <linux/module.h>
+#include <linux/rwsem.h>
+#include <linux/slab.h>
+#include <linux/uaccess.h>
+
+struct re_mem_region {
+	void __iomem *base;
+	size_t size;
+	phys_addr_t ap_phys;
+	phys_addr_t md_phys;
+};
+
+/* Must define the REAL struct THISGUY, typed callback, and region accessor. */
+#include "re_mem_driver_abi.h"
+
+static unsigned long myaddr;
+module_param(myaddr, ulong, 0400);
+MODULE_PARM_DESC(myaddr, "Verified LIVE getthisguy address from this device boot");
+static unsigned int region = 2;
+module_param(region, uint, 0400);
+MODULE_PARM_DESC(region, "Initial region (1..5); use misc sysfs to switch at runtime");
+
+static struct re_mem_region regions[5];
+static DECLARE_RWSEM(region_lock);
+static void __iomem *re_base;
+static size_t re_size;
+static phys_addr_t re_phys;
+static phys_addr_t re_md_phys;
+static u64 generation;
+
+struct re_mem_file {
+	u64 generation;
+};
+
+static int select_region(unsigned int requested)
+{
+	struct re_mem_region *selected;
+
+	if (requested < 1 || requested > ARRAY_SIZE(regions))
+		return -EINVAL;
+	down_write(&region_lock);
+	selected = &regions[requested - 1];
+	if (!selected->base || !selected->size) {
+		up_write(&region_lock);
+		return -ENODEV;
+	}
+	if (region != requested || !re_base) {
+		re_base = selected->base;
+		re_size = selected->size;
+		re_phys = selected->ap_phys;
+		re_md_phys = selected->md_phys;
+		region = requested;
+		generation++;
+	}
+	up_write(&region_lock);
+	return 0;
+}
+
+static int re_mem_open(struct inode *inode, struct file *file)
+{
+	struct re_mem_file *context;
+
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY)
+		return -EACCES;
+	if (!capable(CAP_SYS_RAWIO))
+		return -EPERM;
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
+	if (!context)
+		return -ENOMEM;
+	down_read(&region_lock);
+	context->generation = generation;
+	up_read(&region_lock);
+	file->private_data = context;
+	return 0;
+}
+
+static int re_mem_release(struct inode *inode, struct file *file)
+{
+	kfree(file->private_data);
+	return 0;
+}
+
+static ssize_t re_mem_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+{
+	struct re_mem_file *context = file->private_data;
+	u8 *temporary;
+	size_t length;
+	ssize_t result;
+
+	if (!count)
+		return 0;
+	if (*pos < 0)
+		return -EINVAL;
+	down_read(&region_lock);
+	/* A multi-syscall cat/dd must never concatenate different regions. */
+	if (context->generation != generation) {
+		result = -ESTALE;
+		goto unlock;
+	}
+	if (*pos >= re_size) {
+		result = 0;
+		goto unlock;
+	}
+	length = min_t(size_t, count, re_size - (size_t)*pos);
+	length = min_t(size_t, length, 64 * 1024);
+	temporary = kmalloc(length, GFP_KERNEL);
+	if (!temporary) {
+		result = -ENOMEM;
+		goto unlock;
+	}
+	/* The driver owns this mapping. Never ioremap/iounmap or write to it. */
+	memcpy_fromio(temporary, (u8 __iomem *)re_base + *pos, length);
+	if (copy_to_user(buf, temporary, length)) {
+		result = -EFAULT;
+	} else {
+		*pos += length;
+		result = length;
+	}
+	kfree(temporary);
+unlock:
+	up_read(&region_lock);
+	return result;
+}
+
+static loff_t re_mem_llseek(struct file *file, loff_t offset, int whence)
+{
+	struct re_mem_file *context = file->private_data;
+	loff_t result;
+
+	down_read(&region_lock);
+	if (context->generation != generation)
+		result = -ESTALE;
+	else
+		result = fixed_size_llseek(file, offset, whence, re_size);
+	up_read(&region_lock);
+	return result;
+}
+
+static const struct file_operations re_mem_fops = {
+	.owner = THIS_MODULE,
+	.open = re_mem_open,
+	.release = re_mem_release,
+	.read = re_mem_read,
+	.llseek = re_mem_llseek,
+};
+
+static ssize_t region_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+
+	down_read(&region_lock);
+	length = scnprintf(buf, PAGE_SIZE, "%u\n", region);
+	up_read(&region_lock);
+	return length;
+}
+
+static ssize_t region_store(struct device *dev, struct device_attribute *attr,
+			   const char *buf, size_t count)
+{
+	unsigned int requested;
+	int error;
+
+	if (!capable(CAP_SYS_RAWIO))
+		return -EPERM;
+	error = kstrtouint(buf, 10, &requested);
+	if (error)
+		return error;
+	error = select_region(requested);
+	return error ? error : count;
+}
+static DEVICE_ATTR_RW(region);
+
+static ssize_t info_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+
+	if (!capable(CAP_SYS_RAWIO))
+		return -EPERM;
+	down_read(&region_lock);
+	length = scnprintf(buf, PAGE_SIZE,
+		"region=%u\nsize=0x%zx\nmd_phys=0x%llx\nap_phys=0x%llx\n"
+		"ap_virt=0x%lx\ngeneration=%llu\n",
+		region, re_size, (unsigned long long)re_md_phys,
+		(unsigned long long)re_phys, (unsigned long)re_base,
+		(unsigned long long)generation);
+	up_read(&region_lock);
+	return length;
+}
+static DEVICE_ATTR_RO(info);
+
+static ssize_t regions_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	size_t length = 0;
+	unsigned int i;
+
+	if (!capable(CAP_SYS_RAWIO))
+		return -EPERM;
+	down_read(&region_lock);
+	for (i = 0; i < ARRAY_SIZE(regions); i++) {
+		struct re_mem_region *r = &regions[i];
+
+		if (!r->base || !r->size)
+			continue;
+		length += scnprintf(buf + length, PAGE_SIZE - length,
+			"region=%u\nsize=0x%zx\nmd_phys=0x%llx\nap_phys=0x%llx\n"
+			"ap_virt=0x%lx\n\n", i + 1, r->size,
+			(unsigned long long)r->md_phys, (unsigned long long)r->ap_phys,
+			(unsigned long)r->base);
+	}
+	up_read(&region_lock);
+	return length;
+}
+static DEVICE_ATTR_RO(regions);
+
+static struct attribute *re_mem_attrs[] = {
+	&dev_attr_region.attr, &dev_attr_info.attr, &dev_attr_regions.attr, NULL,
+};
+ATTRIBUTE_GROUPS(re_mem);
+
+static struct miscdevice re_mem_device = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "re_mem",
+	.fops = &re_mem_fops,
+	.mode = 0400,
+	.groups = re_mem_groups,
+};
+
+static int __init re_mem_init(void)
+{
+	getthisguy_fn_t getthisguy_fn;
+	struct THISGUY *guy;
+	unsigned int i;
+	int error;
+
+	/* These checks cannot prove a function's ABI; userspace must verify it. */
+	if (sizeof(unsigned long) != 8 || !myaddr || (myaddr & 3) ||
+	    (myaddr >> 48) != 0xffff)
+		return -EINVAL;
+	getthisguy_fn = (getthisguy_fn_t)myaddr;
+	guy = getthisguy_fn(0);
+	if (IS_ERR_OR_NULL(guy))
+		return guy ? PTR_ERR(guy) : -ENODEV;
+	error = re_mem_driver_describe(guy, regions);
+	if (error)
+		return error;
+	for (i = 0; i < ARRAY_SIZE(regions); i++) {
+		struct re_mem_region *r = &regions[i];
+
+		if (IS_ERR(r->base) || (r->size && !r->base) ||
+		    (r->base && !r->size) || r->size > ULONG_MAX - (unsigned long)r->base ||
+		    r->size > U64_MAX - r->ap_phys || r->size > U64_MAX - r->md_phys)
+			return -EINVAL;
+	}
+	error = select_region(region);
+	if (error)
+		return error;
+	error = misc_register(&re_mem_device);
+	if (!error)
+		pr_info("re_mem: read-only module ready, region %u\n", region);
+	return error;
+}
+
+static void __exit re_mem_exit(void)
+{
+	misc_deregister(&re_mem_device);
+	/* All region mappings are borrowed. Their owner retains them. */
+	pr_info("re_mem: unloaded explicitly\n");
+}
+module_init(re_mem_init);
+module_exit(re_mem_exit);
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Read-only vendor shared-memory region selector");
