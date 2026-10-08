@@ -1,15 +1,19 @@
 python3 - <<'PY'
-a = open("screen_off.bin", "rb").read()
-b = open("screen_on.bin", "rb").read()
+off1 = open("r3_off1.bin", "rb").read()
+on1  = open("r3_on1.bin",  "rb").read()
+off2 = open("r3_off2.bin", "rb").read()
+on2  = open("r3_on2.bin",  "rb").read()
 
-BASE = 0x63c07000
+n = min(len(off1), len(on1), len(off2), len(on2))
 
-for i, (x, y) in enumerate(zip(a, b)):
-    if x != y:
+for i in range(n):
+    a, b, c, d = off1[i], on1[i], off2[i], on2[i]
+
+    if a == c and b == d and a != b:
         print(
-            f"offset 0x{i:03x}  "
-            f"phys 0x{BASE+i:08x}  "
-            f"OFF=0x{x:02x} ON=0x{y:02x}  "
-            f"xor=0x{x^y:02x}"
+            f"offset=0x{i:x} "
+            f"OFF=0x{a:02x} "
+            f"ON=0x{b:02x} "
+            f"xor=0x{a ^ b:02x}"
         )
 PY
