@@ -1,16 +1,19 @@
 python3 - <<'PY'
-a = open("r3_off1.bin", "rb").read()
-b = open("r3_on1.bin", "rb").read()
+files = [
+    ("OFF1", "r2_off1.bin"),
+    ("ON1",  "r2_on1.bin"),
+    ("OFF2", "r2_off2.bin"),
+    ("ON2",  "r2_on2.bin"),
+    ("OFF3", "r2_off3.bin"),
+    ("ON3",  "r2_on3.bin"),
+]
 
-changed = [(i, x, y) for i, (x, y) in enumerate(zip(a, b)) if x != y]
+offsets = [0xfc04, 0xa40b4, 0xa40b8]
 
-print("changed bytes:", len(changed))
+data = [(name, open(path, "rb").read()) for name, path in files]
 
-for i, x, y in changed[:50]:
-    print(
-        f"offset=0x{i:x} "
-        f"OFF=0x{x:02x} "
-        f"ON=0x{y:02x} "
-        f"xor=0x{x^y:02x}"
-    )
+for off in offsets:
+    print(f"\n===== OFFSET 0x{off:x} =====")
+    for name, buf in data:
+        print(f"{name:4s}: 0x{buf[off]:02x}")
 PY
