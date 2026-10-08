@@ -72,7 +72,7 @@ class Module:
             raise RememError(state.error or "Root is required")
         if not self.config.abi_verified:
             raise RememError(
-                "Module ABI is unverified. Supply real driver definitions, build for "
+                "Module ABI is unverified. Verify the supplied driver layout, build for "
                 "this device, then set module.abi_verified=true in config.toml"
             )
         local: Path = self.config.local_path

@@ -3,9 +3,11 @@
 #include <linux/capability.h>
 #include <linux/err.h>
 #include <linux/fs.h>
+#include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
@@ -18,7 +20,7 @@ struct re_mem_region {
 	phys_addr_t md_phys;
 };
 
-/* Must define the REAL struct THISGUY, typed callback, and region accessor. */
+/* Layout and typed callback from the original working reader. */
 #include "re_mem_driver_abi.h"
 
 static unsigned long myaddr;
@@ -59,6 +61,7 @@ static int select_region(unsigned int requested)
 		re_md_phys = selected->md_phys;
 		region = requested;
 		generation++;
+		pr_info("re_mem: selected region %u, size=0x%zx\n", region, re_size);
 	}
 	up_write(&region_lock);
 	return 0;
@@ -92,7 +95,8 @@ static ssize_t re_mem_read(struct file *file, char __user *buf, size_t count, lo
 {
 	struct re_mem_file *context = file->private_data;
 	u8 *temporary;
-	size_t length;
+	size_t available, total = 0, chunk, not_copied;
+	loff_t start_offset;
 	ssize_t result;
 
 	if (!count)
@@ -105,26 +109,38 @@ static ssize_t re_mem_read(struct file *file, char __user *buf, size_t count, lo
 		result = -ESTALE;
 		goto unlock;
 	}
-	if (*pos >= re_size) {
+	if (!re_base || !re_size) {
+		result = -ENODEV;
+		goto unlock;
+	}
+	if ((u64)*pos >= re_size) {
 		result = 0;
 		goto unlock;
 	}
-	length = min_t(size_t, count, re_size - (size_t)*pos);
-	length = min_t(size_t, length, 64 * 1024);
-	temporary = kmalloc(length, GFP_KERNEL);
+	start_offset = *pos;
+	available = re_size - (size_t)*pos;
+	count = min(count, available);
+	temporary = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!temporary) {
 		result = -ENOMEM;
 		goto unlock;
 	}
-	/* The driver owns this mapping. Never ioremap/iounmap or write to it. */
-	memcpy_fromio(temporary, (u8 __iomem *)re_base + *pos, length);
-	if (copy_to_user(buf, temporary, length)) {
-		result = -EFAULT;
-	} else {
-		*pos += length;
-		result = length;
+	/* Keep the original page-sized loop; hold the region lock for the whole read. */
+	while (total < count) {
+		chunk = min_t(size_t, PAGE_SIZE, count - total);
+		/* The driver owns this mapping. Never remap, unmap or write to it. */
+		memcpy_fromio(temporary,
+			(u8 __iomem *)re_base + (size_t)start_offset + total, chunk);
+		not_copied = copy_to_user(buf + total, temporary, chunk);
+		total += chunk - not_copied;
+		if (not_copied)
+			break;
 	}
 	kfree(temporary);
+	*pos += total;
+	result = total ? (ssize_t)total : -EFAULT;
+	pr_debug_ratelimited("re_mem: READ region=%u offset=0x%llx bytes=%zu\n",
+		region, (unsigned long long)start_offset, total);
 unlock:
 	up_read(&region_lock);
 	return result;
@@ -138,8 +154,10 @@ static loff_t re_mem_llseek(struct file *file, loff_t offset, int whence)
 	down_read(&region_lock);
 	if (context->generation != generation)
 		result = -ESTALE;
+	else if (!re_base || !re_size)
+		result = -ENODEV;
 	else
-		result = fixed_size_llseek(file, offset, whence, re_size);
+		result = fixed_size_llseek(file, offset, whence, (loff_t)re_size);
 	up_read(&region_lock);
 	return result;
 }
@@ -242,8 +260,11 @@ static int __init re_mem_init(void)
 
 	/* These checks cannot prove a function's ABI; userspace must verify it. */
 	if (sizeof(unsigned long) != 8 || !myaddr || (myaddr & 3) ||
-	    (myaddr >> 48) != 0xffff)
+	    (myaddr >> 48) != 0xffff) {
+		pr_err("re_mem: a verified live ARM64 getthisguy address is required\n");
 		return -EINVAL;
+	}
+	pr_info("re_mem: getthisguy runtime address = 0x%lx\n", myaddr);
 	getthisguy_fn = (getthisguy_fn_t)myaddr;
 	guy = getthisguy_fn(0);
 	if (IS_ERR_OR_NULL(guy))
@@ -254,16 +275,24 @@ static int __init re_mem_init(void)
 	for (i = 0; i < ARRAY_SIZE(regions); i++) {
 		struct re_mem_region *r = &regions[i];
 
-		if (IS_ERR(r->base) || (r->size && !r->base) ||
-		    (r->base && !r->size) || r->size > ULONG_MAX - (unsigned long)r->base ||
-		    r->size > U64_MAX - r->ap_phys || r->size > U64_MAX - r->md_phys)
-			return -EINVAL;
+		if (IS_ERR_OR_NULL(r->base) || !r->size ||
+		    r->size > ULONG_MAX - (unsigned long)r->base ||
+		    r->size > U64_MAX - r->ap_phys || r->size > U64_MAX - r->md_phys) {
+			/* An unavailable optional region must not prevent using a valid one. */
+			pr_warn("re_mem: region %u is unavailable\n", i + 1);
+			memset(r, 0, sizeof(*r));
+			continue;
+		}
+		pr_info("re_mem: region=%u size=0x%zx md=%pa ap=%pa virtual=%px\n",
+			i + 1, r->size, &r->md_phys, &r->ap_phys, r->base);
 	}
 	error = select_region(region);
 	if (error)
 		return error;
 	error = misc_register(&re_mem_device);
-	if (!error)
+	if (error)
+		pr_err("re_mem: misc_register failed: %d\n", error);
+	else
 		pr_info("re_mem: read-only module ready, region %u\n", region);
 	return error;
 }
@@ -277,4 +306,5 @@ static void __exit re_mem_exit(void)
 module_init(re_mem_init);
 module_exit(re_mem_exit);
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Jaydyn");
 MODULE_DESCRIPTION("Read-only vendor shared-memory region selector");

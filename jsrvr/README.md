@@ -7,14 +7,13 @@ It runs on the workstation and uses ADB to inspect a rooted ARM64 test device.
 
 ## Current delivery status
 
-The desktop application is implemented, installs as `remem`, and has 48 passing
-unit, mock-device, and headless TUI tests. Ruff lint/format and mypy checks pass.
-The supplied workspace was empty: no original
-`re_mem_region.c`, Makefile, real vendor headers, or `ghidra2live.py` was available.
-The kernel implementation therefore has an **explicit ABI integration boundary**:
-`kernel/re_mem_driver_abi.h` must be supplied from the actual driver definitions.
-`re_mem_driver_abi.example.h` is an **unverified transcription of the conceptual
-layout**, not a verified replacement for the real driver headers.
+The desktop application is implemented and installs as `remem`. All 54 tests
+pass, covering logic, mock devices, the headless TUI, and kernel build-wrapper
+arguments. Ruff lint/format and mypy checks pass.
+The kernel uses the exact structure definitions and function prototype supplied
+from Jaydyn's working reader, preserved in `kernel/re_mem_driver_abi.h`.
+Regions 4 and 5 use their provided bases directly, matching that reader;
+`struct y.offset` is not added to them. No `ghidra2live.py` was present.
 
 No Android device testing or kernel build has been performed. The development
 host is macOS; the target workstation is Linux. Screenshots and the demo backend
@@ -53,37 +52,46 @@ horizontally for wide address columns.
 
 ## Integrate and build the kernel module
 
-1. Provide the original module and driver headers. Verify the exact layout of
-   `struct x`, `struct y`, and `struct THISGUY`, and the exact `getthisguy(int)`
-   prototype against the vendor build. Verify whether `var4`/`var5` point to single
-   regions or arrays and whether their bases already incorporate `offset`.
-2. Create `kernel/re_mem_driver_abi.h`. Prefer including the real project headers.
-   It must define the correctly typed `getthisguy_fn_t`, `struct THISGUY`, and
-   `re_mem_driver_describe(guy, out)` which fills five `struct re_mem_region`
-   entries. This accessor is the only driver-specific integration code; the
-   example demonstrates the contract. Do not promote the example unchanged
-   without verifying the actual ABI and borrowed mapping lifetime.
-3. Use the **matching, configured Android kernel build tree**, generated headers,
+1. The supplied working reader's `struct x`, `struct y`, `struct THISGUY`, and
+   exact `getthisguy(int)` callback are already in `kernel/re_mem_driver_abi.h`.
+   If these types exist in your real vendor header (such as `omgbaby.h`), replace
+   the three structure definitions with that include. Keep the callback and
+   `re_mem_driver_describe()` accessor. Confirm the mapping owner keeps all
+   exposed mappings alive for the module's lifetime.
+2. Use the **matching, configured Android kernel build tree**, generated headers,
    device configuration, `Module.symvers`, and the device's toolchain. Build on
    Linux, for example for a kernel supporting LLVM builds:
 
    ```sh
    make -C kernel KDIR=/absolute/path/to/device-kernel-build \
-       ARCH=arm64 LLVM=1 ABI_VERIFIED=1
+       ARCH=arm64 LLVM=/absolute/path/to/clang/bin/ LLVM_IAS=1
    ```
 
-   For vendor GCC builds, use the exact corresponding `CROSS_COMPILE` prefix
-   instead of `LLVM=1`. Follow the vendor's module build instructions for older
+   Replace these paths with the real Linux paths from your working Makefile.
+   `KDIR` points to the Android kernel source/build tree, not the workstation's
+   kernel. `LLVM` points to the toolchain's `bin/` directory with a trailing slash;
+   use `LLVM=1` if those tools are already on `PATH`. These are standard
+   [Linux Kbuild LLVM options](https://docs.kernel.org/kbuild/llvm.html).
+   `CLANG=/absolute/path/to/clang` optionally sets an explicit `CC` executable.
+   `CROSS_COMPILE` and `CROSS_COMPILE_ARM32` are forwarded when your vendor build
+   needs them. For vendor GCC builds, use the exact corresponding `CROSS_COMPILE`
+   prefix instead of `LLVM`. Follow the vendor's module build instructions for older
    Android trees. Module signing, SELinux policy, and kernel CFI requirements are
    device-specific and must be satisfied by that build.
-4. Set `[module].local_path` to the resulting `.ko`, configure its remote path
-   and module name if needed, and set `abi_verified = true` **only after the ABI
+   If you include a vendor header, pass `VENDOR_INCLUDE=/absolute/path/to/headers`
+   for its include directory. Additional include flags can be passed through
+   `KCFLAGS='-I/path/one -I/path/two'`. Clean with the same build settings and a
+   `clean` target, for example `make -C kernel KDIR=/actual/kernel/build clean`.
+3. The output is `kernel/re_mem_region.ko`; the default module filename, name,
+   and config already match. Set `[module].local_path` to the resulting `.ko`,
+   configure its remote path and module name if needed, and set
+   `abi_verified = true` **only after the ABI
    and build match your device**. Restart remem after changing configuration.
 
-The Makefile deliberately refuses a normal build until the header and
-`ABI_VERIFIED=1` are supplied. This is an unfinished device-integration step,
-not a compiler or symbol-resolution workaround. That flag does not validate an
-ABI by itself.
+The Makefile requires an explicit device `KDIR` and uses the supplied ABI header.
+Automatic insertion requires the config setting
+`abi_verified = true` after you complete the matching build; the setting itself
+does not establish device compatibility.
 
 The function must be a built-in text symbol in root-readable `/proc/kallsyms`.
 The loader accepts one exact `T`/`t` match with a nonzero, aligned ARM64 kernel
@@ -100,7 +108,8 @@ only the sysfs selector.
 
 ## Device setup that remains manual
 
-- Supply the original driver definitions and complete the matching kernel build.
+- Build against the matching Android kernel tree using your actual toolchain paths,
+  confirm the supplied layout matches that build, and enable `abi_verified` in config.
 - Enable USB debugging, connect the device, approve the workstation's ADB key,
   and grant your `su` implementation root access. `su -c` and `CAP_SYS_RAWIO`
   must work for this module.
@@ -223,7 +232,11 @@ driver/modem.
 The kernel uses `memcpy_fromio()`, a region read/write semaphore, and a generation
 check for each open descriptor. Switching regions waits for the active read,
 then invalidates existing readers with `ESTALE`, preventing multi-read captures
-from concatenating two regions. The misc device has mode `0400`, accepts only
+from concatenating two regions. Reads retain the original page-sized copy loop;
+partial user-buffer faults return the number of bytes actually copied. Missing
+or invalid optional regions are omitted from `regions` and return `ENODEV` when
+selected, allowing other valid regions to remain usable.
+The misc device has mode `0400`, accepts only
 read-only opens with `CAP_SYS_RAWIO`, and provides no write/ioctl/mmap path.
 It never remaps or unmaps the vendor driver's borrowed mapping. That mapping
 must remain alive while this module is loaded; confirm the vendor driver's
@@ -247,7 +260,7 @@ and is never the metadata API.
 .
 ├── kernel/
 │   ├── re_mem_region.c
-│   ├── re_mem_driver_abi.example.h
+│   ├── re_mem_driver_abi.h
 │   └── Makefile
 ├── remem/
 │   ├── app.py / app.tcss
@@ -257,7 +270,7 @@ and is never the metadata API.
 │   ├── config.py / cli.py / demo.py
 │   ├── __init__.py / __main__.py
 │   └── widgets/ (address map, hex renderer, dialogs)
-├── tests/ (logic, mocked devices, Textual interaction)
+├── tests/ (logic, mocked devices, Textual interaction, build wrapper)
 ├── scripts/render_demo.py
 ├── doc/ui-design-spec.md
 ├── doc/previews/ (*.svg)
@@ -281,7 +294,9 @@ The mock tests check parsing, ranges, translations, XOR/bits, snapshot corruptio
 repeatability, ADB device states, sysfs, boot changes, symbol rejection, existing
 module reuse, bounded reads, and capture discard. TUI tests exercise dashboard,
 watch edits, hex reads, region switches, capture/diff/candidate/neighborhood tools,
-small-terminal navigation, and unload cancellation. Rendered previews use the
+small-terminal navigation, and unload cancellation. Build-wrapper tests use a
+fake Kbuild to verify the module name, toolchain/include options, and clean target;
+they do not compile the kernel module. Rendered previews use the
 actual Textual widgets. Their synthetic values cannot validate a kernel ABI,
 ADB behavior on your phone, timing on hardware, or mapping lifetime.
 

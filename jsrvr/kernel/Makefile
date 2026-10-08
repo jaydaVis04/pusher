@@ -1,16 +1,25 @@
+# Build with the configured Android kernel tree and its matching toolchain.
+# Command-line LLVM, LLVM_IAS, CROSS_COMPILE and CROSS_COMPILE_ARM32 variables
+# propagate to recursive make. CLANG optionally sets an explicit CC executable.
 ifneq ($(KERNELRELEASE),)
 obj-m += re_mem_region.o
+ifneq ($(strip $(VENDOR_INCLUDE)),)
+ccflags-y += -I$(VENDOR_INCLUDE)
+endif
 else
 KDIR ?=
 ARCH ?= arm64
-ABI_VERIFIED ?= 0
-.PHONY: all clean
-all:
-	@test "$(ABI_VERIFIED)" = "1" || (echo "Verify the real driver ABI, then set ABI_VERIFIED=1"; exit 1)
-	@test -f re_mem_driver_abi.h || (echo "Supply re_mem_driver_abi.h from real vendor definitions"; exit 1)
-	@test -n "$(KDIR)" || (echo "Set KDIR to the configured device kernel build tree"; exit 1)
-	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=$(ARCH) modules
-clean:
-	@test -n "$(KDIR)" || (echo "Set KDIR"; exit 1)
-	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=$(ARCH) clean
+CLANG ?=
+VENDOR_INCLUDE ?=
+ifneq ($(strip $(CLANG)),)
+COMPILER_ARG := CC="$(CLANG)"
+endif
+.PHONY: all clean check-kdir
+all: check-kdir
+	$(MAKE) -C "$(KDIR)" M="$(CURDIR)" ARCH="$(ARCH)" $(COMPILER_ARG) modules
+clean: check-kdir
+	$(MAKE) -C "$(KDIR)" M="$(CURDIR)" ARCH="$(ARCH)" $(COMPILER_ARG) clean
+check-kdir:
+	@test -n "$(KDIR)" || (echo "Set KDIR to the configured Android device kernel build tree"; exit 1)
+	@test -f "$(KDIR)/Makefile" || (echo "KDIR must contain the device kernel build Makefile"; exit 1)
 endif

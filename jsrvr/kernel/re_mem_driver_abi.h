@@ -1,7 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * UNVERIFIED integration example, transcribed from the user's conceptual layout.
- * Do NOT use on a device until checked against the actual vendor driver headers.
- * Copy to re_mem_driver_abi.h and replace types/layout/accessors with real ones.
+ * Definitions preserved from Jaydyn's working re_mem module.
+ * If supplied by the real project header (e.g. omgbaby.h), include that header
+ * instead of the struct definitions below. Keep the function prototype exact.
  * The vendor driver must keep these borrowed mappings alive while re_mem is loaded.
  */
 #ifndef RE_MEM_DRIVER_ABI_H
@@ -49,7 +50,7 @@ static inline int re_mem_driver_describe(struct THISGUY *guy,
 	for (i = 0; i < 2; i++) {
 		if (!y[i])
 			continue;
-		/* Confirm whether the real driver's y bases already include offset. */
+		/* Preserve the original reader: use these bases directly, not + offset. */
 		out[i + 3].base = y[i]->base_ap_view_vir;
 		out[i + 3].size = y[i]->size;
 		out[i + 3].ap_phys = y[i]->base_ap_view_phy;
