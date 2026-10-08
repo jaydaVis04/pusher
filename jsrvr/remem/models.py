@@ -1,7 +1,7 @@
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 class RememError(Exception):
@@ -17,7 +17,7 @@ def parse_number(value: str | int) -> int:
 
 
 def timestamp() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def validate_boot(value: str) -> str:

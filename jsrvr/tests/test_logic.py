@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -8,7 +9,7 @@ from remem.candidates import analyze_candidates, neighborhood, repeated_candidat
 from remem.config import Config
 from remem.diff import changed_bits, diff_bytes
 from remem.memory import watch_ranges
-from remem.models import Region, RememError, parse_number
+from remem.models import Region, RememError, parse_number, timestamp
 from remem.regions import parse_info, parse_regions
 from remem.snapshots import SnapshotStore, compatible
 
@@ -183,6 +184,29 @@ def test_config(tmp_path):
     path.write_text("[ui]\nwatch_interval_ms=0\n")
     with pytest.raises(RememError):
         Config.load(path)
+
+
+def test_config_toml_parsing_and_relative_paths(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[module]\nlocal_path="kernel/test.ko"\n'
+        "[ui]\ndefault_region=3\n"
+        '[[candidate]]\nregion=3\noffset="0xfc04"\noff_value="0x40"\non_value="0x00"\n'
+    )
+    config = Config.load(path)
+    assert config.local_path == tmp_path / "kernel" / "test.ko"
+    assert config.default_region == 3
+    assert config.candidates[0].offset == 0xFC04
+    assert config.candidates[0].off_value == 0x40
+    path.write_text('[ui\ndefault_region="unterminated')
+    with pytest.raises(RememError, match="Invalid config"):
+        Config.load(path)
+
+
+def test_timestamp_includes_utc_timezone():
+    parsed = datetime.fromisoformat(timestamp())
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timedelta(0)
 
 
 def test_candidate_limit_keeps_full_count_and_best_rank(tmp_path):

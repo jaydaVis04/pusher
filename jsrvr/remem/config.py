@@ -1,10 +1,15 @@
 import math
 import re
-import tomllib
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import Candidate, RememError, parse_number
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 
 @dataclass

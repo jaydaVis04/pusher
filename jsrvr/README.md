@@ -1,13 +1,13 @@
 # remem
 
-A read-only Android shared-memory workbench for Python 3.11+ and Textual.
+A read-only Android shared-memory workbench for Python 3.10+ and Textual.
 It runs on the workstation and uses ADB to inspect a rooted ARM64 test device.
 
 ![Synthetic live-watch preview](doc/previews/watch.svg)
 
 ## Current delivery status
 
-The desktop application is implemented and installs as `remem`. All 54 tests
+The desktop application is implemented and installs as `remem`. All 56 tests
 pass, covering logic, mock devices, the headless TUI, and kernel build-wrapper
 arguments. Ruff lint/format and mypy checks pass.
 The kernel uses the exact structure definitions and function prototype supplied
@@ -21,19 +21,23 @@ are synthetic and are not evidence of device compatibility.
 
 ## Install and launch
 
-On Linux, install Android platform-tools (`adb`), Python 3.11 or newer, and venv
+On Linux, install Android platform-tools (`adb`), Python 3.10 or newer, and venv
 support using your distribution's package manager. Then, from this directory:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install -e .
 remem --demo
 ```
 
 The demo never runs ADB. Region addresses are synthetic; region 2 cycles through
 the three supplied OFF/ON byte observations every three seconds. Use it to try
 navigation and capture/diff tools before connecting hardware.
+
+Python 3.10 uses the automatically installed `tomli` package for TOML configuration;
+Python 3.11+ uses the standard library parser. An existing Linux Python 3.10 venv
+can be reused after updating the project and rerunning the install command.
 
 After completing the device setup below:
 
@@ -283,6 +287,7 @@ and is never the metadata API.
 ## Development and validation
 
 ```sh
+python -m pip install -e '.[dev]'
 python -m pytest -q
 ruff check remem tests scripts
 ruff format --check remem tests scripts
