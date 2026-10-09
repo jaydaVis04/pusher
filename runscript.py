@@ -2,8 +2,11 @@ from ghidra.program.model.scalar import Scalar
 
 listing = currentProgram.getListing()
 
+LOADS = ["lw", "lbu", "lb", "lhu", "lh"]
+BRANCHES = ["beq", "bne", "beqz", "bnez"]
 
-def scalar_is_40(ins):
+
+def has_40(ins):
     if ins.getMnemonicString().lower() != "andi":
         return False
 
@@ -12,137 +15,91 @@ def scalar_is_40(ins):
             if isinstance(obj, Scalar):
                 if obj.getUnsignedValue() == 0x40:
                     return True
+
     return False
 
 
-def reg_text(ins, operand):
-    try:
-        return ins.getDefaultOperandRepresentation(operand).strip()
-    except:
-        return ""
-
-
-hits = []
+candidates = []
 
 for ins in listing.getInstructions(True):
 
-    if not scalar_is_40(ins):
+    if not has_40(ins):
         continue
 
-    # MIPS:
-    # andi DEST, SOURCE, 0x40
-    if ins.getNumOperands() < 3:
-        continue
+    previous = []
+    following = []
 
-    dest = reg_text(ins, 0)
-    source = reg_text(ins, 1)
-
-    if not dest or not source:
-        continue
-
-    # --------------------------------------------------
-    # Search up to 5 instructions backward for:
-    #
-    # lw SOURCE, ...
-    # --------------------------------------------------
-
-    load = None
+    # Look 10 instructions backward.
     cur = ins
-
-    for _ in range(5):
-
+    for _ in range(10):
         prev = listing.getInstructionBefore(cur.getAddress())
 
         if prev is None:
             break
 
-        mnem = prev.getMnemonicString().lower()
-
-        if mnem == "lw" and prev.getNumOperands() >= 1:
-
-            load_dest = reg_text(prev, 0)
-
-            if load_dest == source:
-                load = prev
-                break
-
+        previous.insert(0, prev)
         cur = prev
 
-    if load is None:
-        continue
-
-    # --------------------------------------------------
-    # Search next 5 instructions for branch using DEST
-    # --------------------------------------------------
-
-    branch = None
+    # Look 10 instructions forward.
     cur = ins
-
-    for _ in range(5):
-
+    for _ in range(10):
         nxt = listing.getInstructionAfter(cur.getAddress())
 
         if nxt is None:
             break
 
-        mnem = nxt.getMnemonicString().lower()
-
-        if (
-            mnem.startswith("beq") or
-            mnem.startswith("bne")
-        ):
-
-            text = str(nxt)
-
-            if dest in text:
-                branch = nxt
-                break
-
+        following.append(nxt)
         cur = nxt
 
-    if branch is None:
+    nearby_loads = [
+        x for x in previous
+        if x.getMnemonicString().lower() in LOADS
+    ]
+
+    if not nearby_loads:
         continue
 
-    hits.append((load, ins, branch))
+    nearby_branches = [
+        x for x in following
+        if x.getMnemonicString().lower() in BRANCHES
+        or x.getMnemonicString().lower().startswith("beq")
+        or x.getMnemonicString().lower().startswith("bne")
+    ]
+
+    candidates.append(
+        (ins, previous, following, nearby_loads, nearby_branches)
+    )
 
 
 print("")
 print("============================================================")
-print("LW -> ANDI 0x40 -> BRANCH CANDIDATES")
+print("ANDI 0x40 + NEARBY MEMORY LOAD")
 print("============================================================")
 print("")
 
-for number, (load, mask, branch) in enumerate(hits, 1):
+for num, item in enumerate(candidates, 1):
+
+    ins, previous, following, loads, branches = item
 
     print("============================================================")
-    print("CANDIDATE #%d" % number)
+    print("CANDIDATE #%d @ %s" % (num, ins.getAddress()))
+    print(
+        "Nearby loads: %d | Nearby branches: %d"
+        % (len(loads), len(branches))
+    )
     print("============================================================")
 
-    # print a little surrounding context
-    cur = load
+    for x in previous:
+        print("     %s    %s" % (x.getAddress(), x))
 
-    print("%s    %s" % (load.getAddress(), load))
+    print(" >>> %s    %s" % (ins.getAddress(), ins))
 
-    while True:
-
-        nxt = listing.getInstructionAfter(cur.getAddress())
-
-        if nxt is None:
-            break
-
-        print("%s    %s" % (nxt.getAddress(), nxt))
-
-        if nxt.getAddress() == branch.getAddress():
-            break
-
-        cur = nxt
-
-        # safety in case something weird happens
-        if cur.getAddress().subtract(load.getAddress()) > 40:
-            break
+    for x in following:
+        print("     %s    %s" % (x.getAddress(), x))
 
     print("")
 
+
 print("============================================================")
-print("TOTAL STRONG CANDIDATES: %d" % len(hits))
+print("TOTAL CANDIDATES: %d" % len(candidates))
 print("============================================================")
