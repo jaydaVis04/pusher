@@ -94,11 +94,9 @@ class Adb:
     async def root(self, command: str, binary: bool = False) -> bytes:
         # One shell-escaped remote command; user values are separately quoted by callers.
         remote = "su -c " + shlex.quote(command)
-        if binary:
-            return await self.run("exec-out", remote, binary=True)
-        # exec-out does not forward the remote exit status. Use the shell protocol
-        # for controls so failed insmod, rmmod and sysfs commands raise real errors.
-        return await self.run("shell", "-T", remote)
+        # The non-PTY shell protocol preserves binary stdout, separates stderr,
+        # and forwards exit status. exec-out can mix dd diagnostics into raw data.
+        return await self.run("shell", "-T", remote, binary=binary)
 
     async def text(self, command: str) -> str:
         return (await self.root(command)).decode(errors="strict").strip()

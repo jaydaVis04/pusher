@@ -218,12 +218,13 @@ metadata, and SHA-256. Comparisons require matching serial, boot, region, size,
 and bases. A selector generation can differ between captures of the same region.
 Failures are surfaced; corrupted or truncated snapshots are not compared.
 
-Module operations, sysfs controls, and status queries use `adb shell -T` so the
-remote exit code and stderr reach the application. `adb exec-out` does not
-forward the remote command's exit status; it is reserved for binary reads.
+Root commands, including binary reads, use `adb shell -T` so the remote exit code
+and stderr reach the application separately from stdout. Disabling the PTY keeps
+binary bytes intact. This prevents `dd` transfer statistics from becoming part of
+memory data. `adb exec-out` does not forward the remote command's exit status.
 See the [ADB shell options](https://android.googlesource.com/platform/packages/modules/adb/+/HEAD/docs/user/adb.1.md).
 
-Bounded reads use `adb exec-out` with root `dd if=/dev/re_mem bs=1 skip=O count=L`.
+Bounded reads use `adb shell -T` with root `dd if=/dev/re_mem bs=1 skip=O count=L`.
 The kernel implements seeking, so large offsets need not be read and discarded.
 Nearby watches coalesce (`0xA40B4` and `0xA40B8` share a five-byte read); the gap
 to `0xFC04` is never dumped. Full captures use `cat /dev/re_mem`.

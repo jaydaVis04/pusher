@@ -30,7 +30,8 @@ class Memory:
                 f"dd if=/dev/re_mem bs=1 skip={offset} count={length}", binary=True
             )
         if len(result) != length:
-            raise RememError(f"Short memory read: expected {length}, received {len(result)}")
+            kind = "Short" if len(result) < length else "Excess"
+            raise RememError(f"{kind} memory read: expected {length}, received {len(result)}")
         after = parse_info(await self.adb.text(f"cat {SYSFS}/info"))
         if after != before:
             raise RememError("Region changed during read; data discarded")
