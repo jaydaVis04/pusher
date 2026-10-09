@@ -11,7 +11,8 @@ The desktop application is implemented and installs as `remem`. All 56 tests
 pass, covering logic, mock devices, the headless TUI, and kernel build-wrapper
 arguments. Ruff lint/format and mypy checks pass.
 The kernel uses the exact structure definitions and function prototype supplied
-from Jaydyn's working reader, preserved in `kernel/re_mem_driver_abi.h`.
+from Jaydyn's working reader, included directly in `kernel/re_mem_region.c`.
+The module source is self-contained and needs no custom ABI header.
 Regions 4 and 5 use their provided bases directly, matching that reader;
 `struct y.offset` is not added to them. No `ghidra2live.py` was present.
 
@@ -56,11 +57,10 @@ horizontally for wide address columns.
 
 ## Integrate and build the kernel module
 
-1. The supplied working reader's `struct x`, `struct y`, `struct THISGUY`, and
-   exact `getthisguy(int)` callback are already in `kernel/re_mem_driver_abi.h`.
-   If these types exist in your real vendor header (such as `omgbaby.h`), replace
-   the three structure definitions with that include. Keep the callback and
-   `re_mem_driver_describe()` accessor. Confirm the mapping owner keeps all
+1. The supplied working reader's `struct x`, `struct y`, `struct THISGUY`, exact
+   `getthisguy(int)` callback, and `re_mem_driver_describe()` accessor are all
+   included directly in `kernel/re_mem_region.c`. No custom header or vendor
+   include path is needed. Confirm the mapping owner keeps all
    exposed mappings alive for the module's lifetime.
 2. Use the **matching, configured Android kernel build tree**, generated headers,
    device configuration, `Module.symvers`, and the device's toolchain. Build on
@@ -82,9 +82,11 @@ horizontally for wide address columns.
    prefix instead of `LLVM`. Follow the vendor's module build instructions for older
    Android trees. Module signing, SELinux policy, and kernel CFI requirements are
    device-specific and must be satisfied by that build.
-   If you include a vendor header, pass `VENDOR_INCLUDE=/absolute/path/to/headers`
-   for its include directory. Additional include flags can be passed through
-   `KCFLAGS='-I/path/one -I/path/two'`. Clean with the same build settings and a
+   You can use your existing working Makefile instead. Point its `obj-m` at this
+   updated source. If it uses `obj-m += re_mem.o`, save this source as `re_mem.c`
+   and set `[module].name = "re_mem"` and `local_path` to the resulting `re_mem.ko`.
+   Additional include flags can be passed through `KCFLAGS` if your build needs
+   them. Clean with the same build settings and a
    `clean` target, for example `make -C kernel KDIR=/actual/kernel/build clean`.
 3. The output is `kernel/re_mem_region.ko`; the default module filename, name,
    and config already match. Set `[module].local_path` to the resulting `.ko`,
@@ -92,7 +94,8 @@ horizontally for wide address columns.
    `abi_verified = true` **only after the ABI
    and build match your device**. Restart remem after changing configuration.
 
-The Makefile requires an explicit device `KDIR` and uses the supplied ABI header.
+The supplied Makefile requires an explicit device `KDIR` and builds the
+self-contained C source. Your working device Makefile can also build this source.
 Automatic insertion requires the config setting
 `abi_verified = true` after you complete the matching build; the setting itself
 does not establish device compatibility.
@@ -264,7 +267,6 @@ and is never the metadata API.
 .
 ├── kernel/
 │   ├── re_mem_region.c
-│   ├── re_mem_driver_abi.h
 │   └── Makefile
 ├── remem/
 │   ├── app.py / app.tcss
