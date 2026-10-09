@@ -104,8 +104,26 @@ class Module:
             f"myaddr=0x{address:x} region={self.config.default_region}"
         )
         result = await self.status()
-        if result.error or not result.loaded or not result.dev_present or result.boot_id != boot:
-            raise RememError(result.error or "Module insertion could not be verified")
+        self.adb.log(
+            f"POST-INSERT module={self.config.module_name} loaded={result.loaded} "
+            f"/dev/re_mem={result.dev_present} boot={result.boot_id or 'unavailable'}"
+        )
+        if result.error:
+            raise RememError(result.error)
+        if result.boot_id != boot:
+            raise RememError(
+                "Android boot changed during module insertion; the module may not be loaded. "
+                "Inspect kernel diagnostics before retrying; the previous address is invalid."
+            )
+        if not result.loaded:
+            node = "present" if result.dev_present else "missing"
+            raise RememError(
+                f"insmod returned success, but configured module {self.config.module_name!r} "
+                f"was not detected at /sys/module/{self.config.module_name}; /dev/re_mem is {node}. "
+                "Check /proc/modules for the actual compiled module name and dmesg for init errors."
+            )
+        if not result.dev_present:
+            raise RememError("Module loaded but /dev/re_mem is missing; inspect kernel diagnostics")
         return result
 
     async def unload(self, confirmed: bool = False) -> None:

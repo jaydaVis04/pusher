@@ -2,7 +2,7 @@
 # Command-line LLVM, LLVM_IAS, CROSS_COMPILE and CROSS_COMPILE_ARM32 variables
 # propagate to recursive make. CLANG optionally sets an explicit CC executable.
 ifneq ($(KERNELRELEASE),)
-obj-m += re_mem_region.o
+obj-m += re_mem.o
 ifneq ($(strip $(VENDOR_INCLUDE)),)
 ccflags-y += -I$(VENDOR_INCLUDE)
 endif

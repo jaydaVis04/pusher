@@ -16,10 +16,10 @@ else:
 class Config:
     serial: str = ""
     timeout: float = 30
-    local_path: Path = Path("kernel/re_mem_region.ko")
-    remote_path: str = "/data/local/tmp/re_mem_region.ko"
+    local_path: Path = Path("kernel/re_mem.ko")
+    remote_path: str = "/data/local/tmp/re_mem.ko"
     symbol: str = "getthisguy"
-    module_name: str = "re_mem_region"
+    module_name: str = "re_mem"
     abi_verified: bool = False
     default_region: int = 2
     interval_ms: int = 250
@@ -46,10 +46,10 @@ class Config:
             config = cls(
                 serial=adb.get("serial", ""),
                 timeout=float(adb.get("timeout_seconds", 30)),
-                local_path=base / mod.get("local_path", "kernel/re_mem_region.ko"),
-                remote_path=mod.get("remote_path", "/data/local/tmp/re_mem_region.ko"),
+                local_path=base / mod.get("local_path", "kernel/re_mem.ko"),
+                remote_path=mod.get("remote_path", "/data/local/tmp/re_mem.ko"),
                 symbol=mod.get("symbol", "getthisguy"),
-                module_name=mod.get("name", "re_mem_region"),
+                module_name=mod.get("name", "re_mem"),
                 abi_verified=mod.get("abi_verified", False),
                 default_region=int(ui.get("default_region", 2)),
                 interval_ms=int(ui.get("watch_interval_ms", 250)),

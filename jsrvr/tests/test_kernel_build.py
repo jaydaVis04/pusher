@@ -47,7 +47,7 @@ def test_kbuild_receives_device_build_settings(
     settings = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert settings["target"] == ("modules" if target == "all" else "clean")
     assert settings["arch"] == "arm64"
-    assert settings["module"] == "re_mem_region.o"
+    assert settings["module"] == "re_mem.o"
     assert settings["llvm"] == "/toolchain/bin/"
     assert settings["ias"] == "1"
     assert settings["cross"] == "aarch64-linux-gnu-"

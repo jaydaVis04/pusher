@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Read-only access to borrowed vendor shared-memory mappings. */
+/* Build this self-contained source with obj-m += re_mem.o. */
 #include <linux/capability.h>
 #include <linux/err.h>
 #include <linux/fs.h>

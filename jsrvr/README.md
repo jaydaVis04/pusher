@@ -11,7 +11,7 @@ The desktop application is implemented and installs as `remem`. All 56 tests
 pass, covering logic, mock devices, the headless TUI, and kernel build-wrapper
 arguments. Ruff lint/format and mypy checks pass.
 The kernel uses the exact structure definitions and function prototype supplied
-from Jaydyn's working reader, included directly in `kernel/re_mem_region.c`.
+from Jaydyn's working reader, included directly in `kernel/re_mem.c`.
 The module source is self-contained and needs no custom ABI header.
 Regions 4 and 5 use their provided bases directly, matching that reader;
 `struct y.offset` is not added to them. No `ghidra2live.py` was present.
@@ -59,7 +59,7 @@ horizontally for wide address columns.
 
 1. The supplied working reader's `struct x`, `struct y`, `struct THISGUY`, exact
    `getthisguy(int)` callback, and `re_mem_driver_describe()` accessor are all
-   included directly in `kernel/re_mem_region.c`. No custom header or vendor
+   included directly in `kernel/re_mem.c`. No custom header or vendor
    include path is needed. Confirm the mapping owner keeps all
    exposed mappings alive for the module's lifetime.
 2. Use the **matching, configured Android kernel build tree**, generated headers,
@@ -82,13 +82,13 @@ horizontally for wide address columns.
    prefix instead of `LLVM`. Follow the vendor's module build instructions for older
    Android trees. Module signing, SELinux policy, and kernel CFI requirements are
    device-specific and must be satisfied by that build.
-   You can use your existing working Makefile instead. Point its `obj-m` at this
-   updated source. If it uses `obj-m += re_mem.o`, save this source as `re_mem.c`
-   and set `[module].name = "re_mem"` and `local_path` to the resulting `re_mem.ko`.
+   You can use your existing working Makefile instead. Keep `obj-m += re_mem.o`
+   and compile the updated `kernel/re_mem.c` source. The source, output, and
+   default config now all use `re_mem`; renaming an old binary does not update it.
    Additional include flags can be passed through `KCFLAGS` if your build needs
    them. Clean with the same build settings and a
    `clean` target, for example `make -C kernel KDIR=/actual/kernel/build clean`.
-3. The output is `kernel/re_mem_region.ko`; the default module filename, name,
+3. The output is `kernel/re_mem.ko`; the default module filename, name,
    and config already match. Set `[module].local_path` to the resulting `.ko`,
    configure its remote path and module name if needed, and set
    `abi_verified = true` **only after the ABI
@@ -266,7 +266,7 @@ and is never the metadata API.
 ```text
 .
 ├── kernel/
-│   ├── re_mem_region.c
+│   ├── re_mem.c
 │   └── Makefile
 ├── remem/
 │   ├── app.py / app.tcss

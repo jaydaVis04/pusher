@@ -3,10 +3,10 @@ serial = ""
 timeout_seconds = 30
 
 [module]
-local_path = "./kernel/re_mem_region.ko"
-remote_path = "/data/local/tmp/re_mem_region.ko"
+local_path = "./kernel/re_mem.ko"
+remote_path = "/data/local/tmp/re_mem.ko"
 symbol = "getthisguy"
-name = "re_mem_region"
+name = "re_mem"
 # Set true ONLY after verifying the kernel ABI and building for this device.
 abi_verified = false
 
