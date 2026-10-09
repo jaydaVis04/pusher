@@ -68,7 +68,7 @@ class Adb:
             raise RememError("adb is missing; install Android platform-tools") from exc
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), self.timeout)
-        except (TimeoutError, asyncio.CancelledError) as exc:
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
             process.kill()
             await process.wait()
             if isinstance(exc, asyncio.CancelledError):
@@ -93,7 +93,12 @@ class Adb:
 
     async def root(self, command: str, binary: bool = False) -> bytes:
         # One shell-escaped remote command; user values are separately quoted by callers.
-        return await self.run("exec-out", "su -c " + shlex.quote(command), binary=binary)
+        remote = "su -c " + shlex.quote(command)
+        if binary:
+            return await self.run("exec-out", remote, binary=True)
+        # exec-out does not forward the remote exit status. Use the shell protocol
+        # for controls so failed insmod, rmmod and sysfs commands raise real errors.
+        return await self.run("shell", "-T", remote)
 
     async def text(self, command: str) -> str:
         return (await self.root(command)).decode(errors="strict").strip()
