@@ -188,47 +188,47 @@ static void dump_top_region(const char *name, struct x *r)
 static void dump_var4_table(struct THISGUY *g)
 {
 	int i;
+	phys_addr_t target_phys;
 
 	if (!g->var4) {
 		pr_err("re_mem: var4 is NULL\n");
 		return;
 	}
 
-	pr_info(
-		"re_mem: scanning %d var4 entries for offset 0x%x\n",
-		SMEM_ENTRY_COUNT,
-		TARGET_OFFSET
-	);
+	target_phys = g->var2.base_ap_view_phy + TARGET_OFFSET;
 
-phys_addr_t target_phys;
+	pr_info("re_mem: scanning %d var4 entries\n",
+		SMEM_ENTRY_COUNT);
 
-target_phys = guy->var2.base_ap_view_phy + TARGET_OFFSET;
+	pr_info("re_mem: target Region2+0xFC04 AP phys = 0x%llx\n",
+		(unsigned long long)target_phys);
 
-pr_info("re_mem: target Region2+0xFC04 AP phys = 0x%llx\n",
-        (unsigned long long)target_phys);
+	for (i = 0; i < SMEM_ENTRY_COUNT; i++) {
+		struct y *r = &g->var4[i];
+		phys_addr_t start = r->base_ap_view_phy;
+		phys_addr_t end = start + r->size;
 
-for (i = 0; i < 22; i++) {
-    struct y *r = &guy->var4[i];
+		pr_info(
+			"re_mem: var4[%02d] id=%u off=0x%x size=0x%x "
+			"ap_phys=0x%llx end_phys=0x%llx\n",
+			i,
+			r->id,
+			r->offset,
+			r->size,
+			(unsigned long long)start,
+			(unsigned long long)end
+		);
 
-    phys_addr_t start = r->base_ap_view_phy;
-    phys_addr_t end   = start + r->size;
-
-    pr_info("re_mem: var4[%02d] id=%u off=0x%x size=0x%x "
-            "ap_phys=0x%llx end_phys=0x%llx\n",
-            i,
-            r->id,
-            r->offset,
-            r->size,
-            (unsigned long long)start,
-            (unsigned long long)end);
-
-    if (start <= target_phys && target_phys < end) {
-        pr_info("re_mem: *** FC04 PHYS OWNER *** "
-                "index=%d id=%u relative=0x%llx\n",
-                i,
-                r->id,
-                (unsigned long long)(target_phys - start));
-    }
+		if (start <= target_phys && target_phys < end) {
+			pr_info(
+				"re_mem: *** FC04 PHYS OWNER *** "
+				"index=%d id=%u relative=0x%llx\n",
+				i,
+				r->id,
+				(unsigned long long)(target_phys - start)
+			);
+		}
+	}
 }
 
 /* --------------------------------------------------------- */
