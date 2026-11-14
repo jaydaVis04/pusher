@@ -200,54 +200,35 @@ static void dump_var4_table(struct THISGUY *g)
 		TARGET_OFFSET
 	);
 
-	for (i = 0; i < SMEM_ENTRY_COUNT; i++) {
-		struct y *r = &g->var4[i];
+phys_addr_t target_phys;
 
-		u64 start = (u64)r->offset;
-		u64 end   = start + (u64)r->size;
+target_phys = guy->var2.base_ap_view_phy + TARGET_OFFSET;
 
-		pr_info(
-			"re_mem: smem[%02d] "
-			"id=%u "
-			"offset=0x%x "
-			"size=0x%x "
-			"end=0x%llx "
-			"flag=0x%x "
-			"md_phys=0x%llx "
-			"ap_phys=0x%llx "
-			"ap_virt=%p\n",
-			i,
-			r->id,
-			r->offset,
-			r->size,
-			(unsigned long long)end,
-			r->flag,
-			(unsigned long long)r->base_md_view_phy,
-			(unsigned long long)r->base_ap_view_phy,
-			r->base_ap_view_vir
-		);
+pr_info("re_mem: target Region2+0xFC04 AP phys = 0x%llx\n",
+        (unsigned long long)target_phys);
 
-		if (start <= TARGET_OFFSET &&
-		    TARGET_OFFSET < end) {
+for (i = 0; i < 22; i++) {
+    struct y *r = &guy->var4[i];
 
-			pr_info(
-				"re_mem: *** FC04 OWNER *** "
-				"index=%d "
-				"id=%u "
-				"offset=0x%x "
-				"size=0x%x "
-				"end=0x%llx "
-				"relative=0x%llx\n",
-				i,
-				r->id,
-				r->offset,
-				r->size,
-				(unsigned long long)end,
-				(unsigned long long)
-					(TARGET_OFFSET - start)
-			);
-		}
-	}
+    phys_addr_t start = r->base_ap_view_phy;
+    phys_addr_t end   = start + r->size;
+
+    pr_info("re_mem: var4[%02d] id=%u off=0x%x size=0x%x "
+            "ap_phys=0x%llx end_phys=0x%llx\n",
+            i,
+            r->id,
+            r->offset,
+            r->size,
+            (unsigned long long)start,
+            (unsigned long long)end);
+
+    if (start <= target_phys && target_phys < end) {
+        pr_info("re_mem: *** FC04 PHYS OWNER *** "
+                "index=%d id=%u relative=0x%llx\n",
+                i,
+                r->id,
+                (unsigned long long)(target_phys - start));
+    }
 }
 
 /* --------------------------------------------------------- */
