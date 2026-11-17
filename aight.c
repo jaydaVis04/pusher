@@ -4,65 +4,39 @@
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
-#include <linux/slab.h>
 #include <linux/io.h>
+#include <linux/slab.h>
 #include <linux/mm.h>
-#include <linux/types.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("re_mem");
-MODULE_DESCRIPTION("Read-only MediaTek memory region reader + SMEM scanner");
+MODULE_DESCRIPTION("Bounded physical memory read/write interface");
 
-static unsigned long myaddr;
-module_param(myaddr, ulong, 0400);
-MODULE_PARM_DESC(myaddr, "Live runtime address of getthisguy()");
+/*
+ * Defaults match the physical window that previously worked:
+ *
+ *   0x64000000
+ *       through
+ *   0x73FFFFFF
+ *
+ * size = 0x10000000
+ *
+ * They can be overridden at insmod.
+ */
 
-static int region = 2;
-module_param(region, int, 0400);
-MODULE_PARM_DESC(region, "Top-level region: 1, 2, or 3");
+static unsigned long long phys_base = 0x64000000ULL;
+module_param(phys_base, ullong, 0400);
 
-#define VAR4_ENTRY_COUNT 22
-#define VAR5_ENTRY_COUNT 9
+static unsigned long map_size = 0x10000000UL;
+module_param(map_size, ulong, 0400);
 
-#define TARGET_OFFSET 0xFC04
+#define MAX_MAP_SIZE 0x10000000UL
 
-struct x {
-	phys_addr_t base_md_view_phy;
-	phys_addr_t base_ap_view_phy;
-	void __iomem *base_ap_view_vir;
-	unsigned int size;
-};
-
-struct y {
-	unsigned int id;
-	unsigned int offset;
-	unsigned int size;
-	unsigned int flag;
-
-	phys_addr_t base_md_view_phy;
-	phys_addr_t base_ap_view_phy;
-	void __iomem *base_ap_view_vir;
-};
-
-struct THISGUY {
-	struct x var1;
-	struct x var2;
-	struct x var3;
-
-	struct y *var4;
-	struct y *var5;
-};
-
-typedef struct THISGUY *(*getthisguy_fn_t)(int id);
-
-static struct THISGUY *guy;
-
-static void __iomem *re_base;
-static unsigned int re_size;
+static void __iomem *mapped_base;
 
 
 /* ========================================================= */
-/* /dev/re_mem                                               */
+/* READ                                                      */
 /* ========================================================= */
 
 static ssize_t re_read(struct file *file,
@@ -70,341 +44,226 @@ static ssize_t re_read(struct file *file,
 		       size_t count,
 		       loff_t *ppos)
 {
-	size_t remaining;
-	size_t chunk;
-	size_t copied = 0;
 	u8 *tmp;
+	size_t total = 0;
+	size_t chunk;
+	size_t remaining;
 
-	if (!re_base || !re_size)
+	if (!mapped_base)
 		return -ENODEV;
 
 	if (*ppos < 0)
 		return -EINVAL;
 
-	if (*ppos >= re_size)
+	if ((u64)*ppos >= map_size)
 		return 0;
 
-	remaining = re_size - *ppos;
+	remaining = map_size - (size_t)*ppos;
 
 	if (count > remaining)
 		count = remaining;
+
+	if (!count)
+		return 0;
 
 	tmp = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!tmp)
 		return -ENOMEM;
 
-	while (copied < count) {
-		chunk = min_t(size_t, PAGE_SIZE, count - copied);
+	while (total < count) {
+
+		chunk = min_t(size_t,
+			      PAGE_SIZE,
+			      count - total);
 
 		memcpy_fromio(
 			tmp,
-			(u8 __iomem *)re_base + *ppos + copied,
+			(u8 __iomem *)mapped_base +
+				(size_t)*ppos +
+				total,
 			chunk
 		);
 
-		if (copy_to_user(user_buf + copied, tmp, chunk)) {
+		if (copy_to_user(user_buf + total,
+				 tmp,
+				 chunk)) {
+
 			kfree(tmp);
-			return copied ? copied : -EFAULT;
+
+			return total ?
+				(ssize_t)total :
+				-EFAULT;
 		}
 
-		copied += chunk;
+		total += chunk;
 	}
 
 	kfree(tmp);
 
-	*ppos += copied;
+	*ppos += total;
 
-	return copied;
+	return total;
 }
 
+
+/* ========================================================= */
+/* WRITE                                                     */
+/* ========================================================= */
+
+static ssize_t re_write(struct file *file,
+			const char __user *user_buf,
+			size_t count,
+			loff_t *ppos)
+{
+	u8 *tmp;
+	size_t total = 0;
+	size_t chunk;
+	size_t remaining;
+
+	if (!mapped_base)
+		return -ENODEV;
+
+	if (*ppos < 0)
+		return -EINVAL;
+
+	if ((u64)*ppos >= map_size)
+		return -ENOSPC;
+
+	remaining = map_size - (size_t)*ppos;
+
+	if (count > remaining)
+		count = remaining;
+
+	if (!count)
+		return 0;
+
+	tmp = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	while (total < count) {
+
+		chunk = min_t(size_t,
+			      PAGE_SIZE,
+			      count - total);
+
+		if (copy_from_user(
+			    tmp,
+			    user_buf + total,
+			    chunk)) {
+
+			kfree(tmp);
+
+			return total ?
+				(ssize_t)total :
+				-EFAULT;
+		}
+
+		memcpy_toio(
+			(u8 __iomem *)mapped_base +
+				(size_t)*ppos +
+				total,
+			tmp,
+			chunk
+		);
+
+		/*
+		 * Ensure the write becomes visible before
+		 * continuing with another chunk.
+		 */
+		wmb();
+
+		total += chunk;
+	}
+
+	kfree(tmp);
+
+	*ppos += total;
+
+	return total;
+}
+
+
+/* ========================================================= */
+/* SEEK                                                      */
+/* ========================================================= */
 
 static loff_t re_llseek(struct file *file,
 			loff_t offset,
 			int whence)
 {
-	return fixed_size_llseek(file, offset, whence, re_size);
+	return fixed_size_llseek(
+		file,
+		offset,
+		whence,
+		map_size
+	);
 }
 
+
+/* ========================================================= */
+/* DEVICE                                                    */
+/* ========================================================= */
 
 static const struct file_operations re_fops = {
-	.owner  = THIS_MODULE,
-	.read   = re_read,
-	.llseek = re_llseek,
+	.owner	= THIS_MODULE,
+	.read	= re_read,
+	.write	= re_write,
+	.llseek	= re_llseek,
 };
 
 
-static struct miscdevice re_miscdev = {
-	.minor = MISC_DYNAMIC_MINOR,
-	.name  = "re_mem",
-	.fops  = &re_fops,
-	.mode  = 0600,
+static struct miscdevice re_misc = {
+	.minor	= MISC_DYNAMIC_MINOR,
+	.name	= "re_mem",
+	.fops	= &re_fops,
+	.mode	= 0600,
 };
 
 
 /* ========================================================= */
-/* Debug printing                                            */
+/* INIT                                                      */
 /* ========================================================= */
 
-static void dump_top_region(const char *name, struct x *r)
+static int __init re_init(void)
 {
-	pr_info(
-		"re_mem: %s "
-		"md_phys=0x%llx "
-		"ap_phys=0x%llx "
-		"ap_virt=%p "
-		"size=0x%x\n",
-		name,
-		(unsigned long long)r->base_md_view_phy,
-		(unsigned long long)r->base_ap_view_phy,
-		r->base_ap_view_vir,
-		r->size
-	);
-}
-
-
-/* ========================================================= */
-/* var4 scanner                                              */
-/* ========================================================= */
-
-static void dump_var4_table(struct THISGUY *g)
-{
-	int i;
-	phys_addr_t target_phys;
-
-	if (!g->var4) {
-		pr_err("re_mem: var4 is NULL\n");
-		return;
-	}
-
-	target_phys =
-		g->var2.base_ap_view_phy +
-		(phys_addr_t)TARGET_OFFSET;
-
-	pr_info(
-		"re_mem: scanning %d var4 entries\n",
-		VAR4_ENTRY_COUNT
-	);
-
-	pr_info(
-		"re_mem: target Region2+0xFC04 AP phys = 0x%llx\n",
-		(unsigned long long)target_phys
-	);
-
-	for (i = 0; i < VAR4_ENTRY_COUNT; i++) {
-		struct y *r = &g->var4[i];
-
-		phys_addr_t start = r->base_ap_view_phy;
-		phys_addr_t end = start + (phys_addr_t)r->size;
-
-		pr_info(
-			"re_mem: var4[%02d] "
-			"id=%u "
-			"off=0x%x "
-			"size=0x%x "
-			"flag=0x%x "
-			"md_phys=0x%llx "
-			"ap_phys=0x%llx "
-			"end_phys=0x%llx "
-			"ap_virt=%p\n",
-			i,
-			r->id,
-			r->offset,
-			r->size,
-			r->flag,
-			(unsigned long long)r->base_md_view_phy,
-			(unsigned long long)r->base_ap_view_phy,
-			(unsigned long long)end,
-			r->base_ap_view_vir
-		);
-
-		if (r->size &&
-		    start <= target_phys &&
-		    target_phys < end) {
-
-			pr_info(
-				"re_mem: *** FC04 VAR4 OWNER *** "
-				"index=%d "
-				"id=%u "
-				"relative=0x%llx\n",
-				i,
-				r->id,
-				(unsigned long long)
-					(target_phys - start)
-			);
-		}
-	}
-}
-
-
-/* ========================================================= */
-/* var5 scanner                                              */
-/* ========================================================= */
-
-static void dump_var5_table(struct THISGUY *g)
-{
-	int i;
-	phys_addr_t target_phys;
-
-	if (!g->var5) {
-		pr_err("re_mem: var5 is NULL\n");
-		return;
-	}
-
-	target_phys =
-		g->var2.base_ap_view_phy +
-		(phys_addr_t)TARGET_OFFSET;
-
-	pr_info(
-		"re_mem: scanning %d var5 entries\n",
-		VAR5_ENTRY_COUNT
-	);
-
-	for (i = 0; i < VAR5_ENTRY_COUNT; i++) {
-		struct y *r = &g->var5[i];
-
-		phys_addr_t start = r->base_ap_view_phy;
-		phys_addr_t end = start + (phys_addr_t)r->size;
-
-		pr_info(
-			"re_mem: var5[%02d] "
-			"id=%u "
-			"off=0x%x "
-			"size=0x%x "
-			"flag=0x%x "
-			"md_phys=0x%llx "
-			"ap_phys=0x%llx "
-			"end_phys=0x%llx "
-			"ap_virt=%p\n",
-			i,
-			r->id,
-			r->offset,
-			r->size,
-			r->flag,
-			(unsigned long long)r->base_md_view_phy,
-			(unsigned long long)r->base_ap_view_phy,
-			(unsigned long long)end,
-			r->base_ap_view_vir
-		);
-
-		if (r->size &&
-		    start <= target_phys &&
-		    target_phys < end) {
-
-			pr_info(
-				"re_mem: *** FC04 VAR5 OWNER *** "
-				"index=%d "
-				"id=%u "
-				"relative=0x%llx\n",
-				i,
-				r->id,
-				(unsigned long long)
-					(target_phys - start)
-			);
-		}
-	}
-}
-
-
-/* ========================================================= */
-/* Module initialization                                     */
-/* ========================================================= */
-
-static int __init re_mem_init(void)
-{
-	getthisguy_fn_t getthisguy_fn;
-	struct x *selected;
 	int ret;
 
-	pr_info("re_mem: loading\n");
-
-	if (!myaddr) {
-		pr_err("re_mem: myaddr was not supplied\n");
+	if (!phys_base) {
+		pr_err("re_mem: phys_base cannot be zero\n");
 		return -EINVAL;
 	}
 
-	if (region < 1 || region > 3) {
+	if (!map_size || map_size > MAX_MAP_SIZE) {
 		pr_err(
-			"re_mem: region must be 1, 2, or 3\n"
+			"re_mem: invalid map_size 0x%lx\n",
+			map_size
 		);
 		return -EINVAL;
 	}
 
-	getthisguy_fn = (getthisguy_fn_t)myaddr;
-
 	pr_info(
-		"re_mem: getthisguy live address = 0x%lx\n",
-		myaddr
+		"re_mem: mapping phys 0x%llx - 0x%llx\n",
+		phys_base,
+		phys_base + map_size - 1
 	);
 
-	guy = getthisguy_fn(0);
+	mapped_base = ioremap_wc(
+		(phys_addr_t)phys_base,
+		map_size
+	);
 
-	if (!guy) {
-		pr_err(
-			"re_mem: getthisguy(0) returned NULL\n"
-		);
-		return -ENODEV;
+	if (!mapped_base) {
+		pr_err("re_mem: ioremap_wc failed\n");
+		return -ENOMEM;
 	}
 
 	pr_info(
-		"re_mem: THISGUY = %p\n",
-		guy
+		"re_mem: mapped at kernel VA %p\n",
+		mapped_base
 	);
 
-	dump_top_region("var1", &guy->var1);
-	dump_top_region("var2", &guy->var2);
-	dump_top_region("var3", &guy->var3);
-
-	/*
-	 * Search both runtime SMEM tables for the physical
-	 * address corresponding to Region2 + 0xFC04.
-	 */
-	dump_var4_table(guy);
-	dump_var5_table(guy);
-
-	switch (region) {
-	case 1:
-		selected = &guy->var1;
-		break;
-
-	case 2:
-		selected = &guy->var2;
-		break;
-
-	case 3:
-		selected = &guy->var3;
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
-	if (!selected->base_ap_view_vir) {
-		pr_err(
-			"re_mem: selected region has NULL AP virtual base\n"
-		);
-		return -ENODEV;
-	}
-
-	if (!selected->size) {
-		pr_err(
-			"re_mem: selected region has size 0\n"
-		);
-		return -ENODEV;
-	}
-
-	re_base = selected->base_ap_view_vir;
-	re_size = selected->size;
-
-	pr_info(
-		"re_mem: selected region=%d "
-		"base=%p "
-		"size=0x%x\n",
-		region,
-		re_base,
-		re_size
-	);
-
-	ret = misc_register(&re_miscdev);
+	ret = misc_register(&re_misc);
 
 	if (ret) {
 		pr_err(
@@ -412,14 +271,14 @@ static int __init re_mem_init(void)
 			ret
 		);
 
-		re_base = NULL;
-		re_size = 0;
+		iounmap(mapped_base);
+		mapped_base = NULL;
 
 		return ret;
 	}
 
 	pr_info(
-		"re_mem: /dev/re_mem ready (read-only)\n"
+		"re_mem: /dev/re_mem ready, read/write enabled\n"
 	);
 
 	return 0;
@@ -427,24 +286,21 @@ static int __init re_mem_init(void)
 
 
 /* ========================================================= */
-/* Module cleanup                                            */
+/* EXIT                                                      */
 /* ========================================================= */
 
-static void __exit re_mem_exit(void)
+static void __exit re_exit(void)
 {
-	misc_deregister(&re_miscdev);
+	misc_deregister(&re_misc);
 
-	/*
-	 * Borrowed mapping from the MediaTek driver.
-	 * Do not iounmap().
-	 */
-	re_base = NULL;
-	re_size = 0;
-	guy = NULL;
+	if (mapped_base) {
+		iounmap(mapped_base);
+		mapped_base = NULL;
+	}
 
 	pr_info("re_mem: unloaded\n");
 }
 
 
-module_init(re_mem_init);
-module_exit(re_mem_exit);
+module_init(re_init);
+module_exit(re_exit);
