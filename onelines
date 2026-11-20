@@ -1,0 +1,1 @@
+for pair in 142f72:1322866 1431c6:1323462 14499c:1329564 144af4:1329908; do label=${pair%%:*}; off=${pair##*:}; echo "ROM+0x$label:"; dd if=/data/local/tmp/md_low.bin bs=1 skip=$off count=16 2>/dev/null | xxd -g1; done
