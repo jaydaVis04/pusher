@@ -1,1 +1,6 @@
-for pair in 142f72:1322866 1431c6:1323462 14499c:1329564 144af4:1329908; do label=${pair%%:*}; off=${pair##*:}; echo "ROM+0x$label:"; dd if=/data/local/tmp/md_low.bin bs=1 skip=$off count=16 2>/dev/null | xxd -g1; done
+#FIRST
+dd if=/dev/re_mem of=/data/local/tmp/md_low.bin bs=4096 count=336 && ls -l /data/local/tmp/md_low.bin && wc -c /data/local/tmp/md_low.bin
+#SECOND
+for off in 1322866 1323462 1329564 1329908; do printf "offset %d: " "$off"; dd if=/data/local/tmp/md_low.bin bs=1 skip="$off" count=16 2>/dev/null | od -An -v -tx1; done
+#THIRD
+dd if=/data/local/tmp/md_low.bin bs=1 skip=1322866 count=16
