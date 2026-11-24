@@ -1,40 +1,45 @@
-python3 - current-6478f000.bin <<'PY'
+python3 - <<'PY'
 from pathlib import Path
-import sys
+import hashlib
 
-path = Path(sys.argv[1])
-data = path.read_bytes()
+first = Path("current-6478f000.bin").read_bytes()
+second = Path("second-6478f000.bin").read_bytes()
 base = 0x6478f000
+anchor_offset = 0x298
+length = 16
 
-patterns = {
-    "historical anchor": bytes.fromhex(
-        "11ec0f6a017440c540c6586703220274"
-    ),
-    "newly observed bytes": bytes.fromhex(
-        "04f0843055e51f4d04f0a430e91bc318"
-    ),
-}
+if len(first) != len(second):
+    raise SystemExit(
+        f"Capture sizes differ: {len(first)} versus {len(second)}"
+    )
 
-print(f"file: {path}")
-print(f"size: {len(data)} bytes")
+differences = [
+    i for i, (a, b) in enumerate(zip(first, second))
+    if a != b
+]
 
-for name, pattern in patterns.items():
-    offsets = []
-    start = 0
+print("first sha256: ", hashlib.sha256(first).hexdigest())
+print("second sha256:", hashlib.sha256(second).hexdigest())
+print("changed bytes:", len(differences))
+print(
+    "first @0x298: ",
+    first[anchor_offset:anchor_offset + length].hex()
+)
+print(
+    "second @0x298:",
+    second[anchor_offset:anchor_offset + length].hex()
+)
 
-    while True:
-        offset = data.find(pattern, start)
-        if offset < 0:
-            break
-        offsets.append(offset)
-        start = offset + 1
+if not differences:
+    print("IDENTICAL: both 4096-byte captures are byte-for-byte equal")
+else:
+    print(f"first changed offset: 0x{differences[0]:x}")
+    print(f"last changed offset:  0x{differences[-1]:x}")
+    print("sample changed offsets (up to 32):")
 
-    if offsets:
-        for offset in offsets:
-            print(
-                f"{name}: offset=0x{offset:x}, "
-                f"physical=0x{base + offset:x}"
-            )
-    else:
-        print(f"{name}: NOT PRESENT in this 4096-byte window")
+    for offset in differences[:32]:
+        print(
+            f"0x{base + offset:x}: "
+            f"{first[offset]:02x} -> {second[offset]:02x}"
+        )
 PY
